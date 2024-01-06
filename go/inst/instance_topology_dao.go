@@ -51,11 +51,12 @@ const (
 )
 
 type ReplicationCredentials struct {
-	User      string
-	Password  string
-	SSLCert   string
-	SSLKey    string
-	SSLCaCert string
+	User             string
+	Password         string
+	SSLCert          string
+	SSLKey           string
+	SSLCaCert        string
+	RequestPublicKey bool
 }
 
 // ExecInstance executes a given query on the given MySQL topology instance
@@ -840,6 +841,10 @@ func ChangeMasterCredentials(instanceKey *InstanceKey, creds *ReplicationCredent
 		query_params = append(query_params, "master_ssl_key = ?")
 		query_params_args = append(query_params_args, creds.SSLKey)
 	}
+	// get master public key
+	if creds.RequestPublicKey {
+		query_params = append(query_params, "get_master_public_key = 1")
+	}
 
 	query := fmt.Sprintf("change master to %s", strings.Join(query_params, ", "))
 	_, err = ExecInstance(instanceKey, query, query_params_args...)
@@ -1248,6 +1253,9 @@ func ReadReplicationCredentials(instanceKey *InstanceKey) (creds *ReplicationCre
 				}
 				if len(row) > 4 {
 					creds.SSLKey = row[4].String
+				}
+				if len(row) > 5 {
+					creds.RequestPublicKey = row[5].String == "1" || row[5].String == "true"
 				}
 			}
 		}

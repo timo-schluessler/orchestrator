@@ -57,6 +57,10 @@ function debug() {
   (>&2 echo "[DEBUG] $message")
 }
 
+function verlte() {
+    printf '%s\n' "$1" "$2" | sort -C -V
+}
+
 
 function precheck() {
   local target="$1"
@@ -84,7 +88,7 @@ function precheck() {
     ok=1
   fi
 
-  if ! go version | egrep -q 'go(1\.1[6789])' ; then
+  if ! verlte 1.16 $(go version | grep -oE "[0-9]+(\.[0-9]+)+"); then
     echo "go version must be 1.16 or above"
     ok=1
   fi
@@ -115,7 +119,7 @@ build_binary() {
   debug "Building via $(go version)"
   mkdir -p "$binary_build_path/bin"
   rm -f $binary_artifact
-  gobuild="go build -i ${opt_race} -ldflags \"$ldflags\" -o $binary_artifact go/cmd/orchestrator/main.go"
+  gobuild="go build ${opt_race} -ldflags \"$ldflags\" -o $binary_artifact go/cmd/orchestrator/main.go"
 
   case $os in
     'linux')
