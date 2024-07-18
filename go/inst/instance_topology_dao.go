@@ -152,19 +152,19 @@ func GetReplicationRestartPreserveStatements(instanceKey *InstanceKey, injectedS
 		return statements, err
 	}
 	if instance.ReplicationIOThreadRuning {
-		statements = append(statements, SemicolonTerminated(`stop slave io_thread`))
+		statements = append(statements, SemicolonTerminated(`stop replica io_thread`))
 	}
 	if instance.ReplicationSQLThreadRuning {
-		statements = append(statements, SemicolonTerminated(`stop slave sql_thread`))
+		statements = append(statements, SemicolonTerminated(`stop replica sql_thread`))
 	}
 	if injectedStatement != "" {
 		statements = append(statements, SemicolonTerminated(injectedStatement))
 	}
 	if instance.ReplicationSQLThreadRuning {
-		statements = append(statements, SemicolonTerminated(`start slave sql_thread`))
+		statements = append(statements, SemicolonTerminated(`start replica sql_thread`))
 	}
 	if instance.ReplicationIOThreadRuning {
-		statements = append(statements, SemicolonTerminated(`start slave io_thread`))
+		statements = append(statements, SemicolonTerminated(`start replica io_thread`))
 	}
 	return statements, err
 }
@@ -243,8 +243,8 @@ func SetSemiSyncReplica(instanceKey *InstanceKey, enableReplica bool) (*Instance
 	}
 	if instance.ReplicationIOThreadRuning {
 		// Need to apply change by stopping starting IO thread
-		ExecInstance(instanceKey, "stop slave io_thread")
-		if _, err := ExecInstance(instanceKey, "start slave io_thread"); err != nil {
+		ExecInstance(instanceKey, "stop replica io_thread")
+		if _, err := ExecInstance(instanceKey, "start replica io_thread"); err != nil {
 			return instance, log.Errore(err)
 		}
 	}
@@ -252,7 +252,7 @@ func SetSemiSyncReplica(instanceKey *InstanceKey, enableReplica bool) (*Instance
 }
 
 func RestartReplicationQuick(instanceKey *InstanceKey) error {
-	for _, cmd := range []string{`stop slave io_thread`, `start slave io_thread`} {
+	for _, cmd := range []string{`stop replica io_thread`, `start replica io_thread`} {
 		if _, err := ExecInstance(instanceKey, cmd); err != nil {
 			return log.Errorf("%+v: RestartReplicationQuick: '%q' failed: %+v", *instanceKey, cmd, err)
 		} else {
@@ -276,7 +276,7 @@ func StopReplicationNicely(instanceKey *InstanceKey, timeout time.Duration) (*In
 	}
 
 	// stop io_thread, start sql_thread but catch any errors
-	for _, cmd := range []string{`stop slave io_thread`, `start slave sql_thread`} {
+	for _, cmd := range []string{`stop replica io_thread`, `start replica sql_thread`} {
 		if _, err := ExecInstance(instanceKey, cmd); err != nil {
 			return nil, log.Errorf("%+v: StopReplicationNicely: '%q' failed: %+v", *instanceKey, cmd, err)
 		}
@@ -289,7 +289,7 @@ func StopReplicationNicely(instanceKey *InstanceKey, timeout time.Duration) (*In
 		}
 	}
 
-	_, err = ExecInstance(instanceKey, `stop slave`)
+	_, err = ExecInstance(instanceKey, `stop replica`)
 	if err != nil {
 		// Patch; current MaxScale behavior for STOP SLAVE is to throw an error if replica already stopped.
 		if instance.isMaxScale() && err.Error() == "Error 1199: Slave connection is not running" {
@@ -398,7 +398,7 @@ func StopReplication(instanceKey *InstanceKey) (*Instance, error) {
 	if !instance.IsReplica() {
 		return instance, fmt.Errorf("instance is not a replica: %+v", instanceKey)
 	}
-	_, err = ExecInstance(instanceKey, `stop slave`)
+	_, err = ExecInstance(instanceKey, `stop replica`)
 	if err != nil {
 		// Patch; current MaxScale behavior for STOP SLAVE is to throw an error if replica already stopped.
 		if instance.isMaxScale() && err.Error() == "Error 1199: Slave connection is not running" {
@@ -463,7 +463,7 @@ func StartReplication(instanceKey *InstanceKey) (*Instance, error) {
 		return instance, log.Errore(err)
 	}
 
-	_, err = ExecInstance(instanceKey, `start slave`)
+	_, err = ExecInstance(instanceKey, `start replica`)
 	if err != nil {
 		return instance, log.Errore(err)
 	}
@@ -560,7 +560,7 @@ func StartReplicationUntilMasterCoordinates(instanceKey *InstanceKey, masterCoor
 	// MariaDB has a bug: a CHANGE MASTER TO statement does not work properly with prepared statement... :P
 	// See https://mariadb.atlassian.net/browse/MDEV-7640
 	// This is the reason for ExecInstance
-	_, err = ExecInstance(instanceKey, "start slave until master_log_file=?, master_log_pos=?",
+	_, err = ExecInstance(instanceKey, "start replica until master_log_file=?, master_log_pos=?",
 		masterCoordinates.LogFile, masterCoordinates.LogPos)
 	if err != nil {
 		return instance, log.Errore(err)
@@ -778,7 +778,7 @@ func DelayReplication(instanceKey *InstanceKey, seconds int) error {
 	if seconds < 0 {
 		return fmt.Errorf("invalid seconds: %d, it should be greater or equal to 0", seconds)
 	}
-	query := fmt.Sprintf("change master to master_delay=%d", seconds)
+	query := fmt.Sprintf("change replication source to source_delay=%d", seconds)
 	statements, err := GetReplicationRestartPreserveStatements(instanceKey, query)
 	if err != nil {
 		return err
@@ -817,36 +817,36 @@ func ChangeMasterCredentials(instanceKey *InstanceKey, creds *ReplicationCredent
 	var query_params_args []interface{}
 
 	// User
-	query_params = append(query_params, "master_user = ?")
+	query_params = append(query_params, "source_user = ?")
 	query_params_args = append(query_params_args, creds.User)
 	// Password
 	if creds.Password != "" {
-		query_params = append(query_params, "master_password = ?")
+		query_params = append(query_params, "source_password = ?")
 		query_params_args = append(query_params_args, creds.Password)
 	}
 
 	// SSL CA cert
 	if creds.SSLCaCert != "" {
-		query_params = append(query_params, "master_ssl_ca = ?")
+		query_params = append(query_params, "source_ssl_ca = ?")
 		query_params_args = append(query_params_args, creds.SSLCaCert)
 	}
 	// SSL cert
 	if creds.SSLCert != "" {
-		query_params = append(query_params, "master_ssl_cert = ?")
+		query_params = append(query_params, "source_ssl_cert = ?")
 		query_params_args = append(query_params_args, creds.SSLCert)
 	}
 	// SSL key
 	if creds.SSLKey != "" {
-		query_params = append(query_params, "master_ssl = 1")
-		query_params = append(query_params, "master_ssl_key = ?")
+		query_params = append(query_params, "source_ssl = 1")
+		query_params = append(query_params, "source_ssl_key = ?")
 		query_params_args = append(query_params_args, creds.SSLKey)
 	}
 	// get master public key
 	if creds.RequestPublicKey {
-		query_params = append(query_params, "get_master_public_key = 1")
+		query_params = append(query_params, "get_source_public_key = 1")
 	}
 
-	query := fmt.Sprintf("change master to %s", strings.Join(query_params, ", "))
+	query := fmt.Sprintf("change replication source to %s", strings.Join(query_params, ", "))
 	_, err = ExecInstance(instanceKey, query, query_params_args...)
 
 	if err != nil {
@@ -874,7 +874,7 @@ func EnableMasterSSL(instanceKey *InstanceKey) (*Instance, error) {
 	if *config.RuntimeCLIFlags.Noop {
 		return instance, fmt.Errorf("noop: aborting CHANGE MASTER TO MASTER_SSL=1 operation on %+v; signaling error but nothing went wrong.", *instanceKey)
 	}
-	_, err = ExecInstance(instanceKey, "change master to master_ssl=1")
+	_, err = ExecInstance(instanceKey, "change replication source to source_ssl=1")
 
 	if err != nil {
 		return instance, log.Errore(err)
@@ -890,10 +890,10 @@ func EnableMasterSSL(instanceKey *InstanceKey) (*Instance, error) {
 func workaroundBug83713(instanceKey *InstanceKey) {
 	log.Debugf("workaroundBug83713: %+v", *instanceKey)
 	queries := []string{
-		`reset slave`,
-		`start slave IO_THREAD`,
-		`stop slave IO_THREAD`,
-		`reset slave`,
+		`reset replica`,
+		`start replica IO_THREAD`,
+		`stop replica IO_THREAD`,
+		`reset replica`,
 	}
 	for _, query := range queries {
 		if _, err := ExecInstance(instanceKey, query); err != nil {
@@ -938,7 +938,7 @@ func ChangeMasterTo(instanceKey *InstanceKey, masterKey *InstanceKey, masterBinl
 	if instance.UsingMariaDBGTID && gtidHint != GTIDHintDeny {
 		// Keep on using GTID
 		changeMasterFunc = func() error {
-			_, err := ExecInstance(instanceKey, "change master to master_host=?, master_port=?",
+			_, err := ExecInstance(instanceKey, "change replication source to source_host=?, source_port=?",
 				changeToMasterKey.Hostname, changeToMasterKey.Port)
 			return err
 		}
@@ -946,7 +946,7 @@ func ChangeMasterTo(instanceKey *InstanceKey, masterKey *InstanceKey, masterBinl
 	} else if instance.UsingMariaDBGTID && gtidHint == GTIDHintDeny {
 		// Make sure to not use GTID
 		changeMasterFunc = func() error {
-			_, err = ExecInstance(instanceKey, "change master to master_host=?, master_port=?, master_log_file=?, master_log_pos=?, master_use_gtid=no",
+			_, err = ExecInstance(instanceKey, "change replication source to source_host=?, source_port=?, source_log_file=?, source_log_pos=?, source_use_gtid=no",
 				changeToMasterKey.Hostname, changeToMasterKey.Port, masterBinlogCoordinates.LogFile, masterBinlogCoordinates.LogPos)
 			return err
 		}
@@ -962,7 +962,7 @@ func ChangeMasterTo(instanceKey *InstanceKey, masterKey *InstanceKey, masterBinl
 			mariadbGTIDHint = "current_pos"
 		}
 		changeMasterFunc = func() error {
-			_, err = ExecInstance(instanceKey, fmt.Sprintf("change master to master_host=?, master_port=?, master_use_gtid=%s", mariadbGTIDHint),
+			_, err = ExecInstance(instanceKey, fmt.Sprintf("change replication source to source_host=?, source_port=?, source_use_gtid=%s", mariadbGTIDHint),
 				changeToMasterKey.Hostname, changeToMasterKey.Port)
 			return err
 		}
@@ -970,7 +970,7 @@ func ChangeMasterTo(instanceKey *InstanceKey, masterKey *InstanceKey, masterBinl
 	} else if instance.UsingOracleGTID && gtidHint != GTIDHintDeny {
 		// Is Oracle; already uses GTID; keep using it.
 		changeMasterFunc = func() error {
-			_, err = ExecInstance(instanceKey, "change master to master_host=?, master_port=?",
+			_, err = ExecInstance(instanceKey, "change replication source to source_host=?, source_port=?",
 				changeToMasterKey.Hostname, changeToMasterKey.Port)
 			return err
 		}
@@ -978,14 +978,14 @@ func ChangeMasterTo(instanceKey *InstanceKey, masterKey *InstanceKey, masterBinl
 	} else if instance.UsingOracleGTID && gtidHint == GTIDHintDeny {
 		// Is Oracle; already uses GTID
 		changeMasterFunc = func() error {
-			_, err = ExecInstance(instanceKey, "change master to master_host=?, master_port=?, master_log_file=?, master_log_pos=?, master_auto_position=0",
+			_, err = ExecInstance(instanceKey, "change replication source to source_host=?, source_port=?, source_log_file=?, source_log_pos=?, source_auto_position=0",
 				changeToMasterKey.Hostname, changeToMasterKey.Port, masterBinlogCoordinates.LogFile, masterBinlogCoordinates.LogPos)
 			return err
 		}
 	} else if instance.SupportsOracleGTID && gtidHint == GTIDHintForce {
 		// Is Oracle; not using GTID right now; turn into GTID
 		changeMasterFunc = func() error {
-			_, err = ExecInstance(instanceKey, "change master to master_host=?, master_port=?, master_auto_position=1",
+			_, err = ExecInstance(instanceKey, "change replication source to source_host=?, source_port=?, source_auto_position=1",
 				changeToMasterKey.Hostname, changeToMasterKey.Port)
 			return err
 		}
@@ -993,7 +993,7 @@ func ChangeMasterTo(instanceKey *InstanceKey, masterKey *InstanceKey, masterBinl
 	} else {
 		// Normal binlog file:pos
 		changeMasterFunc = func() error {
-			_, err = ExecInstance(instanceKey, "change master to master_host=?, master_port=?, master_log_file=?, master_log_pos=?",
+			_, err = ExecInstance(instanceKey, "change replication source to source_host=?, source_port=?, source_log_file=?, source_log_pos=?",
 				changeToMasterKey.Hostname, changeToMasterKey.Port, masterBinlogCoordinates.LogFile, masterBinlogCoordinates.LogPos)
 			return err
 		}
@@ -1059,15 +1059,15 @@ func ResetReplication(instanceKey *InstanceKey) (*Instance, error) {
 	// and only resets till after next restart. This leads to orchestrator still thinking the instance replicates
 	// from old host. We therefore forcibly modify the hostname.
 	// RESET SLAVE ALL command solves this, but only as of 5.6.3
-	_, err = ExecInstance(instanceKey, `change master to master_host='_'`)
+	_, err = ExecInstance(instanceKey, `change replication source to source_host='_'`)
 	if err != nil {
 		return instance, log.Errore(err)
 	}
-	_, err = ExecInstance(instanceKey, `reset slave /*!50603 all */`)
+	_, err = ExecInstance(instanceKey, `reset replica /*!50603 all */`)
 	if err != nil && strings.Contains(err.Error(), Error1201CouldnotInitializeMasterInfoStructure) {
 		log.Debugf("ResetReplication: got %+v", err)
 		workaroundBug83713(instanceKey)
-		_, err = ExecInstance(instanceKey, `reset slave /*!50603 all */`)
+		_, err = ExecInstance(instanceKey, `reset replica /*!50603 all */`)
 	}
 	if err != nil {
 		return instance, log.Errore(err)
@@ -1093,7 +1093,7 @@ func ResetMaster(instanceKey *InstanceKey) (*Instance, error) {
 		return instance, fmt.Errorf("noop: aborting reset-master operation on %+v; signalling error but nothing went wrong.", *instanceKey)
 	}
 
-	_, err = ExecInstance(instanceKey, `reset master`)
+	_, err = ExecInstance(instanceKey, `reset binary logs and gtids`)
 	if err != nil {
 		return instance, log.Errore(err)
 	}
@@ -1472,7 +1472,7 @@ func ShowMasterStatus(instanceKey *InstanceKey) (masterStatusFound bool, execute
 	if err != nil {
 		return masterStatusFound, executedGtidSet, err
 	}
-	err = sqlutils.QueryRowsMap(db, "show master status", func(m sqlutils.RowMap) error {
+	err = sqlutils.QueryRowsMap(db, "show binary log status", func(m sqlutils.RowMap) error {
 		masterStatusFound = true
 		executedGtidSet = m.GetStringD("Executed_Gtid_Set", "")
 		return nil
